@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>IRON FOCUS v7.0 | STREAK ENGINE</title>
+    <style>
+        body { background: #050505; color: #00d4ff; font-family: 'Segoe UI', sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; transition: 0.1s; }
+        .container { display: flex; gap: 20px; transition: opacity 0.5s; max-width: 1100px; z-index: 2; }
+        .panel { border: 2px solid #00d4ff; padding: 25px; border-radius: 15px; background: rgba(0, 212, 255, 0.05); text-align: center; width: 320px; box-shadow: 0 0 20px rgba(0,212,255,0.1); }
+        .danger-panel { border-color: #ff3e3e; background: rgba(255, 62, 62, 0.05); }
+        .success-panel { border-color: #00ff88; background: rgba(0, 255, 136, 0.05); }
+        .timer-label { font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: #888; margin-bottom: 5px; }
+        .big-time { font-size: 50px; font-weight: bold; margin: 10px 0; font-family: 'Courier New', monospace; }
+        .sub-time { font-size: 30px; color: #00ff88; font-family: 'Courier New', monospace; }
+        .break-time { font-size: 30px; color: #ff9d00; font-family: 'Courier New', monospace; }
+        #target-list { list-style: none; padding: 0; text-align: left; max-height: 100px; overflow-y: auto; }
+        .target-item { margin: 8px 0; font-family: monospace; color: #ff3e3e; font-size: 12px; border-left: 3px solid #ff3e3e; padding-left: 10px; }
+        .neutralized { color: #00ff88; text-decoration: line-through; border-color: #00ff88; opacity: 0.6; }
+        select, input { background: #111; border: 1px solid #444; color: #fff; padding: 10px; width: 90%; margin-bottom: 10px; border-radius: 4px; outline: none; }
+        button { background: #00d4ff; border: none; color: #000; padding: 15px; cursor: pointer; font-weight: bold; width: 100%; border-radius: 4px; font-size: 14px; text-transform: uppercase; }
+        button:hover { background: #fff; }
+        .streak-counter { font-size: 24px; color: #ff9d00; font-weight: bold; margin-bottom: 10px; text-shadow: 0 0 10px rgba(255,157,0,0.5); }
+        .hidden { display: none; }
+        .alarm-active { background: #ff0000 !important; animation: flash 0.1s infinite; }
+        @keyframes flash { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+    </style>
+</head>
+<body onload="loadUserData()">
+
+    <div class="container" id="ui-wrapper">
+        <div class="panel danger-panel">
+            <div class="timer-label" style="color:#ff3e3e">Threat Assessment</div>
+            <div id="setup-targets">
+                <input type="text" id="target-input" placeholder="e.g. Poki, Crazy Games...">
+                <button onclick="addTarget()" style="background:#ff3e3e; color: white;">LOCK TARGET</button>
+                <button onclick="clearTargets()" style="background:transparent; color:#ff3e3e; border:1px solid #ff3e3e; margin-top:5px; font-size:10px; padding:5px;">Reset List</button>
+            </div>
+            <ul id="target-list"></ul>
+        </div>
+
+        <div class="panel">
+            <div class="timer-label">Current Mastery Streak</div>
+            <div class="streak-counter">🔥 <span id="streak-val">0</span> DAYS</div>
+
+            <div id="config-zone">
+                <div class="timer-label">Mission Duration (Hours)</div>
+                <input type="number" id="custom-hours" value="7" min="1" max="24">
+            </div>
+            
+            <div id="active-zone" class="hidden">
+                <div class="timer-label">Time to Success</div>
+                <div id="total-clock" class="big-time">00:00:00</div>
+                <div id="study-section">
+                    <div class="timer-label">Study Sprint</div>
+                    <div id="sprint-clock" class="sub-time">50:00</div>
+                </div>
+                <div id="break-section" class="hidden">
+                    <div class="timer-label">Recovery Active</div>
+                    <div id="break-clock" class="break-time">10:00</div>
+                </div>
+            </div>
+
+            <button id="start-btn" onclick="initiateProtocol()">INITIATE LOCKDOWN</button>
+            <button id="save-btn" class="hidden" onclick="saveLog()" style="background:#00ff88;">EXPORT SUCCESS LOG</button>
+        </div>
+
+        <div class="panel success-panel">
+            <div class="timer-label" style="color:#00ff88">Subject Matrix</div>
+            <select id="subject-select" onchange="updateMissionGoal()">
+                <option value="none">Select Hour Subject...</option>
+                <option value="Math">MATH</option>
+                <option value="Physics">PHYSICS</option>
+                <option value="Chemistry">CHEMISTRY</option>
+                <option value="ICT">ICT</option>
+                <option value="SST">SST</option>
+                <option value="Arabic">ARABIC</option>
+                <option value="Islamic">ISLAMIC</option>
+            </select>
+            <div id="mission-goal" style="margin-top:20px; font-size:13px; text-align:left; color:#00ff88;">
+                [SCANNING SUBJECT DATA...]
+            </div>
+        </div>
+    </div>
+
+    <audio id="alarm-sfx" loop src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+    <audio id="trophy-sfx" src="https://actions.google.com/sounds/v1/foley/notification_high.ogg"></audio>
+
+    <script>
+        let totalTime, sprintTime = 50 * 60, breakTime = 10 * 60;
+        let isBreak = false, missionActive = false, interval;
+        const alarm = document.getElementById('alarm-sfx');
+        const trophy = document.getElementById('trophy-sfx');
+
+        // --- LOCAL STORAGE LOGIC ---
+        function loadUserData() {
+            // Load Streak
+            const savedStreak = localStorage.getItem('studyStreak') || 0;
+            document.getElementById('streak-val').innerText = savedStreak;
+
+            // Load Targets
+            const savedTargets = JSON.parse(localStorage.getItem('studyTargets')) || [];
+            savedTargets.forEach(t => renderTarget(t));
+        }
+
+        function addTarget() {
+            const val = document.getElementById('target-input').value;
+            if(!val) return;
+            const targets = JSON.parse(localStorage.getItem('studyTargets')) || [];
+            targets.push(val);
+            localStorage.setItem('studyTargets', JSON.stringify(targets));
+            renderTarget(val);
+            document.getElementById('target-input').value = '';
+        }
+
+        function renderTarget(name) {
+            const li = document.createElement('li');
+            li.className = 'target-item';
+            li.innerHTML = `[LOCKED] ${name.toUpperCase()}`;
+            document.getElementById('target-list').appendChild(li);
+        }
+
+        function clearTargets() {
+            localStorage.removeItem('studyTargets');
+            document.getElementById('target-list').innerHTML = '';
+        }
+
+        // --- MISSION LOGIC ---
+        function initiateProtocol() {
+            if(document.getElementById('target-list').children.length === 0) {
+                alert("MISSION ERROR: Identify distractions to begin.");
+                return;
+            }
+            totalTime = document.getElementById('custom-hours').value * 3600;
+            document.getElementById('config-zone').classList.add('hidden');
+            document.getElementById('active-zone').classList.remove('hidden');
+            document.getElementById('start-btn').classList.add('hidden');
+            document.getElementById('setup-targets').classList.add('hidden');
+            
+            document.documentElement.requestFullscreen().catch(() => {});
+            missionActive = true;
+            interval = setInterval(updateTimers, 1000);
+        }
+
+        function updateTimers() {
+            if (totalTime <= 0) {
+                clearInterval(interval);
+                finishMission();
+                return;
+            }
+            totalTime--;
+            formatDisplay('total-clock', totalTime);
+
+            if (!isBreak) {
+                sprintTime--;
+                formatDisplay('sprint-clock', sprintTime);
+                if (sprintTime <= 0) {
+                    trophy.play();
+                    toggleMode(true);
+                }
+            } else {
+                breakTime--;
+                formatDisplay('break-clock', breakTime);
+                if (breakTime <= 0) toggleMode(false);
+            }
+        }
+
+        function toggleMode(toBreak) {
+            isBreak = toBreak;
+            sprintTime = 50 * 60;
+            breakTime = 10 * 60;
+            document.getElementById('study-section').classList.toggle('hidden');
+            document.getElementById('break-section').classList.toggle('hidden');
+        }
+
+        function finishMission() {
+            missionActive = false;
+            document.exitFullscreen();
+            
+            // Increment Streak
+            let streak = parseInt(localStorage.getItem('studyStreak')) || 0;
+            streak++;
+            localStorage.setItem('studyStreak', streak);
+            document.getElementById('streak-val').innerText = streak;
+
+            document.querySelectorAll('.target-item').forEach(item => {
+                item.classList.add('neutralized');
+                item.innerHTML = item.innerHTML.replace('[LOCKED]', '[NEUTRALIZED]');
+            });
+            document.getElementById('save-btn').classList.remove('hidden');
+            alert("7 HOUR LOCKDOWN SUCCESSFUL. STREAK UPDATED.");
+        }
+
+        // --- NO-EXIT LOGIC ---
+        window.onblur = function() {
+            if (missionActive && totalTime > 0) {
+                document.body.classList.add('alarm-active');
+                alarm.play();
+                alert("INTRUSION DETECTED. RETURN TO STUDY PROTOCOL.");
+            }
+        };
+        window.onfocus = () => { document.body.classList.remove('alarm-active'); alarm.pause(); };
+        window.onbeforeunload = () => { if (missionActive) return "STAY IN THE ZONE!"; };
+
+        function formatDisplay(id, seconds) {
+            let h = Math.floor(seconds / 3600);
+            let m = Math.floor((seconds % 3600) / 60);
+            let s = seconds % 60;
+            document.getElementById(id).innerText = `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+        }
+
+        function updateMissionGoal() {
+            const goals = {
+                Math: "Solve Linear Equations & Functions.",
+                Physics: "Kinetic Analysis & Mechanics.",
+                Chemistry: "Organic Chemistry: Functional Groups.",
+                ICT: "HTML/JS Logic & System Architecture.",
+                SST: "Active Recall: Strategic History.",
+                Arabic: "Linguistics & Grammar (Nahw).",
+                Islamic: "Memorization & Ethical Code."
+            };
+            const sub = document.getElementById('subject-select').value;
+            document.getElementById('mission-goal').innerText = goals[sub] || "";
+        }
+    </script>
+</body>
+</html>
